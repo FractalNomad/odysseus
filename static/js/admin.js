@@ -1860,6 +1860,7 @@ async function loadOidcSettings() {
     el('adm-oauthGroupsClaim').value = data.groups_claim || 'groups';
     el('adm-oauthGroupsAdmin').value = (data.groups_admin || []).join(',');
     el('adm-oauthAutoCreate').checked = data.auto_create_user !== false;
+    el('adm-oauthFirstUserAdmin').checked = data.first_user_admin || false;
     el('adm-oauthDefaultRole').value = data.default_role || 'user';
     el('adm-oauthLogoutUrl').value = data.logout_url || '';
   } catch (e) {
@@ -1888,6 +1889,7 @@ async function saveOidcSettings() {
     oauth_email_claim: el('adm-oauthEmailClaim').value.trim() || 'email',
     oauth_groups_claim: el('adm-oauthGroupsClaim').value.trim() || 'groups',
     oauth_groups_admin: el('adm-oauthGroupsAdmin').value.split(',').map(s => s.trim()).filter(Boolean),
+    oauth_first_user_admin: el('adm-oauthFirstUserAdmin').checked,
     oauth_auto_create_user: el('adm-oauthAutoCreate').checked,
     oauth_default_role: el('adm-oauthDefaultRole').value,
     oauth_logout_url: el('adm-oauthLogoutUrl').value.trim(),

@@ -44,6 +44,7 @@ class OAuthConfig:
         self.email_claim: str = "email"
         self.groups_claim: str = "groups"
         self.groups_admin: List[str] = []
+        self.first_user_admin: bool = False
         self.logout_url: str = ""
         self.redirect_uri: str = ""
         self._discovery_cache: Optional[Dict[str, Any]] = None
@@ -69,6 +70,7 @@ class OAuthConfig:
         self.email_claim = settings.get("oauth_email_claim", "email")
         self.groups_claim = settings.get("oauth_groups_claim", "groups")
         self.groups_admin = settings.get("oauth_groups_admin", []) or []
+        self.first_user_admin = settings.get("oauth_first_user_admin", False)
         self.logout_url = settings.get("oauth_logout_url", "")
 
         # Build redirect_uri from request if not set
@@ -107,6 +109,8 @@ class OAuthConfig:
             self.groups_claim = os.getenv("OAUTH_GROUPS_CLAIM")
         if os.getenv("OAUTH_GROUPS_ADMIN"):
             self.groups_admin = [g.strip() for g in os.getenv("OAUTH_GROUPS_ADMIN", "").split(",") if g.strip()]
+        if os.getenv("OAUTH_FIRST_USER_ADMIN", "").lower() in ("true", "1", "yes"):
+            self.first_user_admin = True
         if os.getenv("OAUTH_LOGOUT_URL"):
             self.logout_url = os.getenv("OAUTH_LOGOUT_URL")
 
@@ -282,7 +286,12 @@ class OAuthManager:
                 f"User '{username}' not found and auto-create is disabled"
             )
 
-        is_admin = self.is_admin_from_groups(userinfo) or self.config.default_role == "admin"
+        # Determine admin role: groups > first_user_admin > default_role
+        is_admin = self.is_admin_from_groups(userinfo)
+        if not is_admin and self.first_user_admin and len(users) == 0:
+            is_admin = True
+        if not is_admin:
+            is_admin = self.config.default_role == "admin"
 
         auth_manager.create_user(username, password="", is_admin=is_admin)
         logger.info(f"Auto-created OIDC user '{username}' (admin={is_admin})")
@@ -311,6 +320,7 @@ class OAuthManager:
             "email_claim": self.config.email_claim,
             "groups_claim": self.config.groups_claim,
             "groups_admin": self.config.groups_admin,
+            "first_user_admin": self.config.first_user_admin,
             "logout_url": self.config.logout_url,
             "redirect_uri": self.config.redirect_uri,
             "is_configured": self.config.is_configured,

@@ -579,8 +579,8 @@ def setup_auth_routes(auth_manager: AuthManager, oauth_manager: Optional[OAuthMa
             # Extract username
             username = om.get_username_from_claims(userinfo)
 
-            # Get or create user
-            auth_manager.get_or_create_user(
+            # Get or create user (uses OAuth config for first_user_admin, etc.)
+            om.get_or_create_user(
                 username, userinfo, auth_manager
             )
 

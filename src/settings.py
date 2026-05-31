@@ -123,6 +123,7 @@ DEFAULT_SETTINGS = {
     "oauth_email_claim": "email",  # Claim to use as email
     "oauth_groups_claim": "groups",  # Claim to use for group-based admin
     "oauth_groups_admin": [],  # Group names that grant admin role (empty = use oauth_default_role)
+    "oauth_first_user_admin": False,  # Grant admin role to first OIDC user
     "oauth_logout_url": "",  # Optional: redirect URL after logout
     "keybinds": {
         "search": "ctrl+k",
