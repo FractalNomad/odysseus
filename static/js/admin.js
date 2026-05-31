@@ -1811,15 +1811,12 @@ function refreshAll() {
   loadEndpoints();
   loadBuiltinTools();
   loadMcpServers();
+  loadOidcSettings();
 }
 
 /* ═══════════════════════════════════════════
    PUBLIC API
    ═══════════════════════════════════════════ */
-export function _initData() {
-  if (!initialized) initAll();
-  else refreshAll();
-}
 
 export function open(tab) {
   _initData();
@@ -1828,6 +1825,115 @@ export function open(tab) {
 
 export function close() {
   settingsModule.close();
+}
+
+/* ═══════════════════════════════════════════
+   AUTH / OAUTH TAB
+   ═══════════════════════════════════════════ */
+
+async function loadOidcSettings() {
+  try {
+    const res = await fetch('/api/auth/oidc/settings', { credentials: 'same-origin' });
+    if (!res.ok) return;
+    const data = await res.json();
+
+    const statusEl = el('adm-oidc-status');
+    if (data.is_configured) {
+      statusEl.textContent = `✓ OAuth enabled — connected to "${data.provider_name}"`;
+      statusEl.style.color = 'var(--accent)';
+    } else {
+      statusEl.textContent = 'OAuth not configured — fill in the fields below and click Save';
+      statusEl.style.color = 'color-mix(in srgb, var(--fg) 55%, transparent)';
+    }
+
+    el('adm-oauthEnabled').checked = data.enabled;
+    el('adm-oauthProviderName').value = data.provider_name || '';
+    el('adm-oauthClientId').value = data.client_id || '';
+    el('adm-oauthClientSecret').value = data.client_secret || '';
+    el('adm-oauthAuthorizeUrl').value = data.authorize_url || '';
+    el('adm-oauthTokenUrl').value = data.token_url || '';
+    el('adm-oauthUserinfoUrl').value = data.userinfo_url || '';
+    el('adm-oauthJwksUrl').value = data.jwks_url || '';
+    el('adm-oauthScopes').value = data.scopes || 'openid email profile';
+    el('adm-oauthUsernameClaim').value = data.username_claim || 'preferred_username';
+    el('adm-oauthEmailClaim').value = data.email_claim || 'email';
+    el('adm-oauthGroupsClaim').value = data.groups_claim || 'groups';
+    el('adm-oauthGroupsAdmin').value = (data.groups_admin || []).join(',');
+    el('adm-oauthAutoCreate').checked = data.auto_create_user !== false;
+    el('adm-oauthDefaultRole').value = data.default_role || 'user';
+    el('adm-oauthLogoutUrl').value = data.logout_url || '';
+  } catch (e) {
+    console.error('Failed to load OIDC settings:', e);
+  }
+}
+
+async function saveOidcSettings() {
+  const msgEl = el('adm-oauthMsg');
+  const btn = el('adm-oauthSaveBtn');
+  btn.disabled = true;
+  msgEl.textContent = 'Saving…';
+  msgEl.style.color = 'var(--fg)';
+
+  const payload = {
+    oauth_enabled: el('adm-oauthEnabled').checked,
+    oauth_provider_name: el('adm-oauthProviderName').value.trim(),
+    oauth_client_id: el('adm-oauthClientId').value.trim(),
+    oauth_client_secret: el('adm-oauthClientSecret').value.trim(),
+    oauth_authorize_url: el('adm-oauthAuthorizeUrl').value.trim(),
+    oauth_token_url: el('adm-oauthTokenUrl').value.trim(),
+    oauth_userinfo_url: el('adm-oauthUserinfoUrl').value.trim(),
+    oauth_jwks_url: el('adm-oauthJwksUrl').value.trim(),
+    oauth_scopes: el('adm-oauthScopes').value.trim() || 'openid email profile',
+    oauth_username_claim: el('adm-oauthUsernameClaim').value.trim() || 'preferred_username',
+    oauth_email_claim: el('adm-oauthEmailClaim').value.trim() || 'email',
+    oauth_groups_claim: el('adm-oauthGroupsClaim').value.trim() || 'groups',
+    oauth_groups_admin: el('adm-oauthGroupsAdmin').value.split(',').map(s => s.trim()).filter(Boolean),
+    oauth_auto_create_user: el('adm-oauthAutoCreate').checked,
+    oauth_default_role: el('adm-oauthDefaultRole').value,
+    oauth_logout_url: el('adm-oauthLogoutUrl').value.trim(),
+  };
+
+  try {
+    const res = await fetch('/api/auth/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      body: JSON.stringify(payload),
+    });
+    if (res.ok) {
+      msgEl.textContent = '✓ OAuth settings saved';
+      msgEl.style.color = 'var(--accent)';
+      loadOidcSettings();  // refresh
+    } else {
+      const err = await res.json().catch(() => ({}));
+      msgEl.textContent = err.detail || 'Save failed';
+      msgEl.style.color = '#e74c3c';
+    }
+  } catch (e) {
+    msgEl.textContent = 'Network error';
+    msgEl.style.color = '#e74c3c';
+  }
+  btn.disabled = false;
+}
+
+function initOauthTab() {
+  const saveBtn = el('adm-oauthSaveBtn');
+  if (saveBtn) saveBtn.addEventListener('click', saveOidcSettings);
+}
+
+/* ═══════════════════════════════════════════
+   INIT
+   ═══════════════════════════════════════════ */
+
+function _initData() {
+  if (initialized) return;
+  loadUsers();
+  loadEndpoints();
+  initEndpointForm();
+  loadBuiltinTools();
+  loadSignupToggle();
+  initOauthTab();
+  initialized = true;
 }
 
 const adminModule = { open, close, _initData, get _initialized() { return initialized; } };

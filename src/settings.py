@@ -107,6 +107,23 @@ DEFAULT_SETTINGS = {
         "NOT urgent."
     ),
     # Keyboard shortcuts (action: key combination)
+    # ── OAuth / OIDC (Authentik, Keycloak, etc.) ──
+    "oauth_enabled": False,
+    "oauth_provider_name": "OAuth",  # Display name for the login button
+    "oauth_client_id": "",
+    "oauth_client_secret": "",
+    "oauth_authorize_url": "",
+    "oauth_token_url": "",
+    "oauth_userinfo_url": "",
+    "oauth_scopes": "openid email profile",
+    "oauth_jwks_url": "",  # Optional: for JWT signature verification (OIDC)
+    "oauth_auto_create_user": True,  # Auto-create user on first OIDC login
+    "oauth_default_role": "user",  # "user" | "admin"
+    "oauth_username_claim": "preferred_username",  # Claim to use as username
+    "oauth_email_claim": "email",  # Claim to use as email
+    "oauth_groups_claim": "groups",  # Claim to use for group-based admin
+    "oauth_groups_admin": [],  # Group names that grant admin role (empty = use oauth_default_role)
+    "oauth_logout_url": "",  # Optional: redirect URL after logout
     "keybinds": {
         "search": "ctrl+k",
         "toggle_sidebar": "ctrl+b",

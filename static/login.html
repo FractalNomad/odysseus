@@ -231,6 +231,15 @@
 
   <div class="error" id="error"></div>
 
+  <div id="oidcLoginBtn" style="display:none; margin-bottom: 1rem;">
+    <button type="button" id="oidcLogin" style="background: var(--panel); border: 1px solid var(--border); color: var(--fg);">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: -2px; margin-right: 6px;"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg>
+      <span id="oidcBtnText">Sign in with OAuth</span>
+    </button>
+  </div>
+
+  <div id="divider" style="display:none; text-align:center; margin: 1rem 0; color: color-mix(in srgb, var(--fg) 35%, transparent); font-size: 0.8rem;">— or —</div>
+
   <form id="authForm" autocomplete="on">
     <label for="username">Username</label>
     <div class="pw-wrapper">
@@ -300,6 +309,8 @@
 
   let mode = 'login'; // 'login' | 'signup' | 'setup'
   let signupAllowed = false;
+  let oidcEnabled = false;
+  let oidcProviderName = 'Sign in with OAuth';
 
   const rememberToggle = document.getElementById('rememberToggle');
 
@@ -350,10 +361,48 @@
     setMode('login');
   }
 
+  // Check OIDC settings
+  try {
+    const oidcRes = await fetch('/api/auth/oidc/settings');
+    if (oidcRes.ok) {
+      const oidcData = await oidcRes.json();
+      oidcEnabled = oidcData.enabled && oidcData.is_configured;
+      if (oidcData.provider_name) {
+        oidcProviderName = 'Sign in with ' + oidcData.provider_name;
+      }
+      if (oidcEnabled) {
+        document.getElementById('oidcLoginBtn').style.display = 'block';
+        document.getElementById('oidcBtnText').textContent = oidcProviderName;
+        document.getElementById('divider').style.display = 'block';
+      }
+    }
+  } catch (e) {
+    // OIDC not available, silently ignore
+  }
+
   toggleLink.addEventListener('click', (e) => {
     e.preventDefault();
     setMode(mode === 'login' ? 'signup' : 'login');
   });
+
+  // OIDC login button
+  const oidcLoginBtn = document.getElementById('oidcLogin');
+  if (oidcLoginBtn) {
+    oidcLoginBtn.addEventListener('click', async () => {
+      // Check for OIDC errors from previous callback
+      const params = new URLSearchParams(window.location.search);
+      const oidcError = params.get('oidc_error');
+      if (oidcError) {
+        errEl.textContent = decodeURIComponent(oidcError);
+        errEl.style.display = 'block';
+        // Clean up URL
+        window.history.replaceState({}, '', window.location.pathname);
+        return;
+      }
+      // Redirect to OAuth login
+      window.location.href = '/api/auth/oauth/login';
+    });
+  }
 
   form.addEventListener('submit', async (e) => {
     e.preventDefault();

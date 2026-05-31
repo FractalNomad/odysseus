@@ -23,6 +23,7 @@ from core.constants import (
 from core.database import SessionLocal, ApiToken
 from core.middleware import SecurityHeadersMiddleware
 from core.auth import AuthManager
+from core.oauth import OAuthManager
 from core.exceptions import (
     SessionNotFoundError, InvalidFileUploadError,
     LLMServiceError, WebSearchError,
@@ -106,6 +107,11 @@ from routes.auth_routes import setup_auth_routes, SESSION_COOKIE
 
 auth_manager = AuthManager()
 app.state.auth_manager = auth_manager
+
+# OAuth / OIDC manager
+oauth_manager = OAuthManager()
+oauth_manager.load_config()
+app.state.oauth_manager = oauth_manager
 AUTH_ENABLED = os.getenv("AUTH_ENABLED", "true").lower() != "false"
 LOCALHOST_BYPASS = os.getenv("LOCALHOST_BYPASS", "false").lower() == "true"
 
@@ -119,6 +125,10 @@ if AUTH_ENABLED:
         "/api/auth/features",
         "/api/auth/settings",
         "/api/auth/integrations/presets",
+        "/api/auth/oidc/settings",
+        "/api/auth/oauth/login",
+        "/api/auth/oauth/callback",
+        "/api/auth/oauth/logout",
         "/api/health",
         "/api/version",
         "/login",
@@ -409,7 +419,7 @@ webhook_manager = WebhookManager(api_key_manager=api_key_manager)
 # ========= INCLUDE ROUTERS =========
 
 # Auth
-auth_router = setup_auth_routes(auth_manager)
+auth_router = setup_auth_routes(auth_manager, oauth_manager)
 app.include_router(auth_router)
 
 # Uploads

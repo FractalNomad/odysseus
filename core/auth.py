@@ -412,6 +412,34 @@ class AuthManager:
             self._sessions.pop(token, None)
         self._save_sessions()
 
+    def get_or_create_user(self, username: str, userinfo: Dict[str, Any],
+                           oauth_config) -> Optional[str]:
+        """Get existing user or auto-create one from OIDC userinfo.
+
+        Returns the username on success, or None if auto-create is disabled
+        and the user doesn't exist.
+        """
+        username = username.strip().lower()
+        if username in self.users:
+            # User exists — check if admin role needs updating
+            user_data = self.users[username]
+            is_admin = user_data.get("is_admin", False)
+            # If they were previously non-admin, check if groups now qualify
+            if not is_admin and oauth_config.is_admin_from_groups(userinfo):
+                self._config["users"][username]["is_admin"] = True
+                self._save()
+                logger.info(f"User '{username}' promoted to admin via OIDC groups")
+            return username
+
+        # Auto-create user if enabled
+        if not oauth_config.auto_create_user:
+            return None
+
+        is_admin = oauth_config.is_admin_from_groups(userinfo) or oauth_config.default_role == "admin"
+        self.create_user(username, password="", is_admin=is_admin)
+        logger.info(f"Auto-created OIDC user '{username}' (admin={is_admin})")
+        return username
+
     def status(self, token: Optional[str]) -> Dict[str, Any]:
         username = self.get_username_for_token(token)
         authenticated = username is not None

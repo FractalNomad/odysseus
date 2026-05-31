@@ -1349,6 +1349,10 @@
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
             <span>Users</span>
           </button>
+          <button class="settings-nav-item admin-only" data-settings-tab="auth">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg>
+            <span>Auth / OAuth</span>
+          </button>
           <button class="settings-nav-item admin-only" data-settings-tab="system">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
             <span>System</span>
@@ -2078,6 +2082,107 @@
             <h2><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:5px;opacity:0.6"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>Built-in Tools</h2>
             <div class="admin-toggle-sub" style="margin-bottom:8px">Enable or disable tools available to the AI agent.</div>
             <div id="adm-builtin-tools-list" class="admin-user-list"></div>
+          </div>
+        </div>
+
+        <!-- ═══ AUTH / OAUTH TAB ═══ -->
+        <div data-settings-panel="auth" class="hidden">
+          <div class="admin-card">
+            <h2><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:5px;opacity:0.6"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg>OAuth / OIDC</h2>
+            <div class="admin-toggle-sub" style="margin-bottom:8px">Connect an external identity provider (Authentik, Keycloak, etc.) for SSO login.</div>
+
+            <div id="adm-oidc-status" style="font-size:12px;margin-bottom:12px;padding:8px;border-radius:6px;background:var(--panel);border:1px solid var(--border);"></div>
+
+            <div class="admin-toggle-row">
+              <div>
+                <div class="admin-toggle-label">Enable OAuth</div>
+                <div class="admin-toggle-sub">Allow users to log in via OAuth in addition to password login</div>
+              </div>
+              <label class="admin-switch"><input type="checkbox" id="adm-oauthEnabled"><span class="admin-slider"></span></label>
+            </div>
+
+            <div class="admin-card" style="margin-top:12px;background:color-mix(in srgb, var(--panel) 95%, var(--bg));border:1px solid var(--border);">
+              <div style="font-size:10px;text-transform:uppercase;letter-spacing:0.5px;opacity:0.35;font-weight:600;margin-bottom:8px;">Client Credentials</div>
+              <div class="settings-row" style="margin-bottom:8px;">
+                <input id="adm-oauthProviderName" type="text" placeholder="Provider name (displayed on login page)" style="flex:1;font-size:12px;padding:6px 8px;background:var(--input-bg,var(--panel));color:var(--fg);border:1px solid var(--border);border-radius:6px;">
+              </div>
+              <div class="settings-row" style="margin-bottom:8px;">
+                <input id="adm-oauthClientId" type="text" placeholder="Client ID" style="flex:1;font-size:12px;padding:6px 8px;background:var(--input-bg,var(--panel));color:var(--fg);border:1px solid var(--border);border-radius:6px;">
+              </div>
+              <div class="settings-row" style="margin-bottom:8px;">
+                <input id="adm-oauthClientSecret" type="password" placeholder="Client Secret" style="flex:1;font-size:12px;padding:6px 8px;background:var(--input-bg,var(--panel));color:var(--fg);border:1px solid var(--border);border-radius:6px;">
+              </div>
+            </div>
+
+            <div class="admin-card" style="margin-top:12px;background:color-mix(in srgb, var(--panel) 95%, var(--bg));border:1px solid var(--border);">
+              <div style="font-size:10px;text-transform:uppercase;letter-spacing:0.5px;opacity:0.35;font-weight:600;margin-bottom:8px;">OIDC Endpoints</div>
+              <div class="settings-row" style="margin-bottom:8px;">
+                <input id="adm-oauthAuthorizeUrl" type="url" placeholder="Authorize URL" style="flex:1;font-size:12px;padding:6px 8px;background:var(--input-bg,var(--panel));color:var(--fg);border:1px solid var(--border);border-radius:6px;">
+              </div>
+              <div class="settings-row" style="margin-bottom:8px;">
+                <input id="adm-oauthTokenUrl" type="url" placeholder="Token URL" style="flex:1;font-size:12px;padding:6px 8px;background:var(--input-bg,var(--panel));color:var(--fg);border:1px solid var(--border);border-radius:6px;">
+              </div>
+              <div class="settings-row" style="margin-bottom:8px;">
+                <input id="adm-oauthUserinfoUrl" type="url" placeholder="Userinfo URL (optional)" style="flex:1;font-size:12px;padding:6px 8px;background:var(--input-bg,var(--panel));color:var(--fg);border:1px solid var(--border);border-radius:6px;">
+              </div>
+              <div class="settings-row" style="margin-bottom:8px;">
+                <input id="adm-oauthJwksUrl" type="url" placeholder="JWKS URL (optional)" style="flex:1;font-size:12px;padding:6px 8px;background:var(--input-bg,var(--panel));color:var(--fg);border:1px solid var(--border);border-radius:6px;">
+              </div>
+            </div>
+
+            <div class="admin-card" style="margin-top:12px;background:color-mix(in srgb, var(--panel) 95%, var(--bg));border:1px solid var(--border);">
+              <div style="font-size:10px;text-transform:uppercase;letter-spacing:0.5px;opacity:0.35;font-weight:600;margin-bottom:8px;">User Mapping</div>
+              <div class="settings-row" style="margin-bottom:8px;">
+                <input id="adm-oauthScopes" type="text" placeholder="Scopes (default: openid email profile)" value="openid email profile" style="flex:1;font-size:12px;padding:6px 8px;background:var(--input-bg,var(--panel));color:var(--fg);border:1px solid var(--border);border-radius:6px;">
+              </div>
+              <div class="settings-row" style="margin-bottom:8px;">
+                <input id="adm-oauthUsernameClaim" type="text" placeholder="Username claim (default: preferred_username)" value="preferred_username" style="flex:1;font-size:12px;padding:6px 8px;background:var(--input-bg,var(--panel));color:var(--fg);border:1px solid var(--border);border-radius:6px;">
+              </div>
+              <div class="settings-row" style="margin-bottom:8px;">
+                <input id="adm-oauthEmailClaim" type="text" placeholder="Email claim (default: email)" value="email" style="flex:1;font-size:12px;padding:6px 8px;background:var(--input-bg,var(--panel));color:var(--fg);border:1px solid var(--border);border-radius:6px;">
+              </div>
+              <div class="settings-row" style="margin-bottom:8px;">
+                <input id="adm-oauthGroupsClaim" type="text" placeholder="Groups claim (default: groups)" value="groups" style="flex:1;font-size:12px;padding:6px 8px;background:var(--input-bg,var(--panel));color:var(--fg);border:1px solid var(--border);border-radius:6px;">
+              </div>
+              <div class="settings-row" style="margin-bottom:8px;">
+                <input id="adm-oauthGroupsAdmin" type="text" placeholder="Admin group names (comma-separated)" style="flex:1;font-size:12px;padding:6px 8px;background:var(--input-bg,var(--panel));color:var(--fg);border:1px solid var(--border);border-radius:6px;">
+              </div>
+            </div>
+
+            <div class="admin-card" style="margin-top:12px;background:color-mix(in srgb, var(--panel) 95%, var(--bg));border:1px solid var(--border);">
+              <div style="font-size:10px;text-transform:uppercase;letter-spacing:0.5px;opacity:0.35;font-weight:600;margin-bottom:8px;">Auto-create &amp; Default Role</div>
+              <div class="admin-toggle-row">
+                <div>
+                  <div class="admin-toggle-label">Auto-create users</div>
+                  <div class="admin-toggle-sub">Automatically create user accounts on first OIDC login</div>
+                </div>
+                <label class="admin-switch"><input type="checkbox" id="adm-oauthAutoCreate" checked><span class="admin-slider"></span></label>
+              </div>
+              <div class="settings-row" style="margin-top:8px;">
+                <select id="adm-oauthDefaultRole" style="flex:1;font-size:12px;padding:6px 8px;background:var(--input-bg,var(--panel));color:var(--fg);border:1px solid var(--border);border-radius:6px;">
+                  <option value="user">Default role: user</option>
+                  <option value="admin">Default role: admin</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="settings-row" style="margin-top:16px;justify-content:flex-end;gap:8px;">
+              <button class="admin-btn-add" id="adm-oauthSaveBtn" style="min-width:120px;">Save OAuth Settings</button>
+              <span id="adm-oauthMsg" style="font-size:11px;"></span>
+            </div>
+
+            <div class="admin-card" style="margin-top:12px;background:color-mix(in srgb, var(--panel) 95%, var(--bg));border:1px solid var(--border);">
+              <div style="font-size:10px;text-transform:uppercase;letter-spacing:0.5px;opacity:0.35;font-weight:600;margin-bottom:8px;">Logout</div>
+              <div class="admin-toggle-row">
+                <div>
+                  <div class="admin-toggle-label">IdP logout URL</div>
+                  <div class="admin-toggle-sub">Optional: redirect to this URL after logging out (Authentik logout_uri, etc.)</div>
+                </div>
+              </div>
+              <div class="settings-row" style="margin-top:8px;">
+                <input id="adm-oauthLogoutUrl" type="url" placeholder="https://auth.example.com/application/o/authorize/?logout_uri=https://app.example.com" style="flex:1;font-size:12px;padding:6px 8px;background:var(--input-bg,var(--panel));color:var(--fg);border:1px solid var(--border);border-radius:6px;">
+              </div>
+            </div>
           </div>
         </div>
 
