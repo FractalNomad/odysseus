@@ -1,0 +1,106 @@
+# docker-compose.test.yml — Local OAuth test stack
+# Spins up Odysseus + Authentik for testing the OIDC flow.
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.test.yml up --build
+#
+# After first boot:
+#   1. Open http://localhost:9000 — create the "akAdmin" admin account
+#   2. In Authentik: Settings → Applications → Create → Application
+#      - Provider: OAuth2/OpenID Provider
+#      - slug: odysseus
+#      - Authorization flow: default-source-authorization-flow
+#      - Client ID: odysseus
+#      - Client Secret: <generated>
+#      - Redirect URIs: http://localhost:7000/api/auth/oauth/callback
+#      - Scopes: openid email profile
+#   3. Create a user in Authentik (or use the built-in default user)
+#   4. Set the .env vars below and restart Odysseus
+
+services:
+  odysseus:
+    build: .
+    ports:
+      - "7000:7000"
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./data/ssh:/app/.ssh
+      - ./data/huggingface:/app/.cache/huggingface
+    env_file:
+      - .env
+    environment:
+      - SEARXNG_INSTANCE=http://searxng:8080
+      - CHROMADB_HOST=chromadb
+      - CHROMADB_PORT=8000
+      - PUID=${PUID:-1000}
+      - PGID=${PGID:-1000}
+      # ── OAuth / OIDC (Authentik) ──
+      - OAUTH_ENABLED=true
+      - OAUTH_PROVIDER_NAME=Authentik
+      - OAUTH_CLIENT_ID=NhSkah8mDff3doVxl1ySgSbsaDAA3xseKbJJIUZo
+      - OAUTH_CLIENT_SECRET=gVsc3g3Un6KQh7lPpb38XaTbJJQFacSzSD8pUtbVJjUCucRveqKP2d1v2v24U1o1rfgwBJPDJIUVUiL4R1bVCte7CY1dGFGKoOhgYHgXSnDxUVSKjNIcW0yBPrrCmRap
+      - OAUTH_DISCOVERY_URL=https://auth.home-net.work/application/o/odysseus/.well-known/openid-configuration
+      - OAUTH_SCOPES=openid email profile
+      - OAUTH_AUTO_CREATE_USER=true
+      - OAUTH_DEFAULT_ROLE=user
+      - OAUTH_USERNAME_CLAIM=preferred_username
+      - OAUTH_EMAIL_CLAIM=email
+      - OAUTH_GROUPS_CLAIM=groups
+      - OAUTH_GROUPS_ADMIN=odysseus-admins
+      - OAUTH_FIRST_USER_ADMIN=true
+      - OAUTH_LOGOUT_URL=https://auth.home-net.work/application/o/odysseus/authorize/?logout_uri=http://localhost:7000
+      # Allow localhost for dev
+      - ALLOWED_ORIGINS=http://localhost:7000,http://localhost:8080
+    depends_on:
+      searxng:
+        condition: service_healthy
+      chromadb:
+        condition: service_started
+      authentik:
+        condition: service_healthy
+    restart: unless-stopped
+
+  authentik:
+    image: ghcr.io/goauthentik/server:2024.12.2
+    command: server
+    ports:
+      - "9000:9000"
+    environment:
+      - AUTHENTIK_SECRET_KEY=super-secret-key-change-in-prod
+      - AUTHENTIK_POSTGRESQL__HOST=authentik-db
+      - AUTHENTIK_POSTGRESQL__PORT=5432
+      - AUTHENTIK_POSTGRESQL__USER=authentik
+      - AUTHENTIK_POSTGRESQL__PASSWORD=authentik
+      - AUTHENTIK_POSTGRESQL__NAME=authentik
+      - AUTHENTIK_REDIS__HOST=authentik-redis
+      - AUTHENTIK_REDIS__PORT=6379
+    depends_on:
+      authentik-db:
+        condition: service_started
+      authentik-redis:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import socket; s=socket.socket(); s.settimeout(2); s.connect(('localhost', 9000)); s.close()\" || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+    restart: unless-stopped
+
+  authentik-db:
+    image: postgres:16-alpine
+    environment:
+      - POSTGRES_USER=authentik
+      - POSTGRES_PASSWORD=authentik
+      - POSTGRES_DB=authentik
+    volumes:
+      - authentik-db-data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  authentik-redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+
+volumes:
+  authentik-db-data:

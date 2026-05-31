@@ -47,6 +47,7 @@ class OAuthConfig:
         self.first_user_admin: bool = False
         self.logout_url: str = ""
         self.redirect_uri: str = ""
+        self.discovery_url: str = ""
         self._discovery_cache: Optional[Dict[str, Any]] = None
         self._discovery_time: float = 0
 
@@ -113,9 +114,14 @@ class OAuthConfig:
             self.first_user_admin = True
         if os.getenv("OAUTH_LOGOUT_URL"):
             self.logout_url = os.getenv("OAUTH_LOGOUT_URL")
+        if os.getenv("OAUTH_DISCOVERY_URL"):
+            self.discovery_url = os.getenv("OAUTH_DISCOVERY_URL")
 
     @property
     def is_configured(self) -> bool:
+        # Discovery URL alone is sufficient — endpoints will be resolved
+        if self.enabled and self.client_id and self.client_secret and self.discovery_url:
+            return True
         return (
             self.enabled
             and self.client_id
@@ -125,27 +131,52 @@ class OAuthConfig:
         )
 
     async def discover(self) -> Dict[str, Any]:
-        """Fetch OIDC discovery document and cache it."""
+        """Fetch OIDC discovery document and auto-configure endpoints.
+
+        If discovery_url is set, it is used directly. Otherwise the system
+        tries the well-known endpoint derived from authorize_url.
+        """
         now = time.monotonic()
         if self._discovery_cache and (now - self._discovery_time) < 300:
             return self._discovery_cache
 
-        # Try well-known endpoint first
+        # Determine which URL to hit
+        discovery_target = self.discovery_url
+        if not discovery_target:
+            # Derive from authorize_url (Authentik style)
+            base = self.authorize_url.rsplit("/", 1)[0]
+            discovery_target = f"{base}/.well-known/openid-configuration"
+
+        if not discovery_target:
+            self._discovery_cache = {}
+            self._discovery_time = now
+            return {}
+
         try:
-            async with httpx.AsyncClient(timeout=10) as client:
-                resp = await client.get(
-                    f"{self.authorize_url.rsplit('/', 1)[0]}/.well-known/openid-configuration",
-                    follow_redirects=True,
-                )
+            async with httpx.AsyncClient(timeout=10, follow_redirects=True) as client:
+                resp = await client.get(discovery_target)
                 if resp.status_code == 200:
                     data = resp.json()
                     self._discovery_cache = data
                     self._discovery_time = now
-                    # Fill in any missing endpoints from discovery
-                    if not self.userinfo_url and "userinfo_endpoint" in data:
+
+                    # Auto-configure endpoints from discovery document
+                    if "authorization_endpoint" in data and not self.authorize_url:
+                        self.authorize_url = data["authorization_endpoint"]
+                    if "token_endpoint" in data and not self.token_url:
+                        self.token_url = data["token_endpoint"]
+                    if "userinfo_endpoint" in data and not self.userinfo_url:
                         self.userinfo_url = data["userinfo_endpoint"]
-                    if not self.jwks_url and "jwks_uri" in data:
+                    if "jwks_uri" in data and not self.jwks_url:
                         self.jwks_url = data["jwks_uri"]
+                    if "end_session_endpoint" in data and not self.logout_url:
+                        self.logout_url = data["end_session_endpoint"]
+                    if "revocation_endpoint" in data:
+                        pass  # store if needed later
+                    if "issuer" in data:
+                        pass  # useful for token validation
+
+                    logger.info(f"OIDC discovery successful: {discovery_target}")
                     return data
         except Exception as e:
             logger.debug(f"OIDC discovery failed (using manual config): {e}")
@@ -323,5 +354,6 @@ class OAuthManager:
             "first_user_admin": self.config.first_user_admin,
             "logout_url": self.config.logout_url,
             "redirect_uri": self.config.redirect_uri,
+            "discovery_url": self.config.discovery_url,
             "is_configured": self.config.is_configured,
         }

@@ -1,6 +1,7 @@
 """Authentication routes — login, logout, signup, status, user management."""
 
 from fastapi import APIRouter, Request, Response, HTTPException
+from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 from typing import Optional
 import logging
@@ -28,6 +29,9 @@ from src.integrations import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Module-level reference for OAuthManager (set by setup_auth_routes)
+_oauth_manager: Optional[OAuthManager] = None
 
 
 class LoginRequest(BaseModel):
@@ -72,7 +76,8 @@ def setup_auth_routes(auth_manager: AuthManager, oauth_manager: Optional[OAuthMa
     if oauth_manager is None:
         oauth_manager = OAuthManager()
         oauth_manager.load_config()
-    router.state.oauth_manager = oauth_manager
+    global _oauth_manager
+    _oauth_manager = oauth_manager
 
     _login_limiter = RateLimiter(max_requests=15, window_seconds=60)
     _signup_limiter = RateLimiter(max_requests=3, window_seconds=300)
@@ -511,7 +516,7 @@ def setup_auth_routes(auth_manager: AuthManager, oauth_manager: Optional[OAuthMa
     @router.get("/oidc/settings")
     async def get_oidc_settings():
         """Return OIDC settings for the frontend (public)."""
-        om: OAuthManager = getattr(router.state, "oauth_manager", None)
+        om: OAuthManager = _oauth_manager
         if om is None:
             return {"enabled": False, "is_configured": False}
         return om.get_oidc_settings()
@@ -519,9 +524,13 @@ def setup_auth_routes(auth_manager: AuthManager, oauth_manager: Optional[OAuthMa
     @router.get("/oauth/login")
     async def oauth_login(request: Request, redirect: str = ""):
         """Redirect to the IdP's authorize endpoint."""
-        om: OAuthManager = getattr(router.state, "oauth_manager", None)
+        om: OAuthManager = _oauth_manager
         if om is None or not om.config.is_configured:
             raise HTTPException(400, "OAuth not configured")
+
+        # Auto-discover endpoints if discovery_url is set
+        if om.config.discovery_url:
+            await om.config.discover()
 
         # Build the redirect_uri from the request
         redirect_uri = str(request.url_for("oauth_callback"))
@@ -537,7 +546,7 @@ def setup_auth_routes(auth_manager: AuthManager, oauth_manager: Optional[OAuthMa
     async def oauth_callback(request: Request, response: Response,
                              code: str = "", state: str = "", error: str = ""):
         """Handle the OAuth callback from the IdP."""
-        om: OAuthManager = getattr(router.state, "oauth_manager", None)
+        om: OAuthManager = _oauth_manager
         if om is None or not om.config.is_configured:
             return RedirectResponse(url="/login", status_code=302)
 
@@ -638,7 +647,7 @@ def setup_auth_routes(auth_manager: AuthManager, oauth_manager: Optional[OAuthMa
     @router.get("/oauth/logout")
     async def oauth_logout(request: Request, response: Response):
         """Log out and optionally redirect to IdP logout."""
-        om: OAuthManager = getattr(router.state, "oauth_manager", None)
+        om: OAuthManager = _oauth_manager
         token = request.cookies.get(SESSION_COOKIE)
         if token:
             auth_manager.revoke_token(token)
