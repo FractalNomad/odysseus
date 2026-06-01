@@ -1934,6 +1934,7 @@ function _initData() {
   initEndpointForm();
   loadBuiltinTools();
   loadSignupToggle();
+  loadOidcSettings();
   initOauthTab();
   initialized = true;
 }
