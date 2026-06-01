@@ -237,25 +237,53 @@ class OAuthManager:
         if not self.config.is_configured:
             raise ValueError("OAuth not configured")
 
+        token_body = {
+            "grant_type": "authorization_code",
+            "code": code,
+            "client_id": self.config.client_id,
+            "redirect_uri": redirect_uri,
+        }
+
         async with httpx.AsyncClient(timeout=15) as client:
-            resp = await client.post(
-                self.config.token_url,
-                data={
-                    "grant_type": "authorization_code",
-                    "code": code,
-                    "client_id": self.config.client_id,
-                    "client_secret": self.config.client_secret,
-                    "redirect_uri": redirect_uri,
-                },
-                headers={"Content-Type": "application/x-www-form-urlencoded"},
+            # Try client_secret_basic first (Authorization header),
+            # then fall back to client_secret_post (form body).
+            # Many IdPs (Authentik, Keycloak) prefer basic auth.
+            for auth_method in ("basic", "post"):
+                headers = {"Content-Type": "application/x-www-form-urlencoded"}
+                body = dict(token_body)
+                if auth_method == "basic":
+                    import base64
+                    creds = f"{self.config.client_id}:{self.config.client_secret}"
+                    headers["Authorization"] = f"Basic {base64.b64encode(creds.encode()).decode()}"
+                else:
+                    body["client_secret"] = self.config.client_secret
+
+                logger.info(
+                    f"Token exchange ({auth_method}): url={self.config.token_url} "
+                    f"body={dict(body)} "
+                    f"headers={dict(headers)}"
+                )
+
+                resp = await client.post(
+                    self.config.token_url,
+                    data=body,
+                    headers=headers,
+                )
+
+                logger.info(
+                    f"Token exchange ({auth_method}) response: {resp.status_code} {resp.text[:500]}"
+                )
+
+                if resp.status_code == 200:
+                    return resp.json()
+
+                if auth_method == "basic":
+                    # Try post as fallback
+                    continue
+
+            raise ValueError(
+                f"Token exchange failed: {resp.status_code} {resp.text}"
             )
-
-            if resp.status_code != 200:
-                logger.error(f"Token exchange failed: {resp.status_code} {resp.text}")
-                raise ValueError(f"Token exchange failed: {resp.status_code}")
-
-            token_data = resp.json()
-            return token_data
 
     async def get_userinfo(self, access_token: str) -> Dict[str, Any]:
         """Fetch user info from the OIDC provider."""
@@ -319,7 +347,7 @@ class OAuthManager:
 
         # Determine admin role: groups > first_user_admin > default_role
         is_admin = self.is_admin_from_groups(userinfo)
-        if not is_admin and self.first_user_admin and len(users) == 0:
+        if not is_admin and self.config.first_user_admin and len(users) == 0:
             is_admin = True
         if not is_admin:
             is_admin = self.config.default_role == "admin"

@@ -38,9 +38,9 @@ services:
       # ── OAuth / OIDC (Authentik) ──
       - OAUTH_ENABLED=true
       - OAUTH_PROVIDER_NAME=Authentik
-      - OAUTH_CLIENT_ID=NhSkah8mDff3doVxl1ySgSbsaDAA3xseKbJJIUZo
-      - OAUTH_CLIENT_SECRET=gVsc3g3Un6KQh7lPpb38XaTbJJQFacSzSD8pUtbVJjUCucRveqKP2d1v2v24U1o1rfgwBJPDJIUVUiL4R1bVCte7CY1dGFGKoOhgYHgXSnDxUVSKjNIcW0yBPrrCmRap
-      - OAUTH_DISCOVERY_URL=https://auth.home-net.work/application/o/odysseus/.well-known/openid-configuration
+      - OAUTH_CLIENT_ID=CHANGE_ME
+      - OAUTH_CLIENT_SECRET=CHANGE_ME
+      - OAUTH_DISCOVERY_URL=CHANGE_ME
       - OAUTH_SCOPES=openid email profile
       - OAUTH_AUTO_CREATE_USER=true
       - OAUTH_DEFAULT_ROLE=user
@@ -49,7 +49,7 @@ services:
       - OAUTH_GROUPS_CLAIM=groups
       - OAUTH_GROUPS_ADMIN=odysseus-admins
       - OAUTH_FIRST_USER_ADMIN=true
-      - OAUTH_LOGOUT_URL=https://auth.home-net.work/application/o/odysseus/authorize/?logout_uri=http://localhost:7000
+      - OAUTH_LOGOUT_URL=CHANGE_ME
       # Allow localhost for dev
       - ALLOWED_ORIGINS=http://localhost:7000,http://localhost:8080
     depends_on:

@@ -568,9 +568,12 @@ def setup_auth_routes(auth_manager: AuthManager, oauth_manager: Optional[OAuthMa
                 status_code=302,
             )
 
-        redirect_uri = str(request.url)
+        # Use base URL without query params — Authentik validates that this
+        # redirect_uri matches the one from the authorization request.
+        redirect_uri = str(request.url).split("?")[0]
 
         try:
+            logger.info(f"OAuth callback: code={code[:10]}..., state={state[:10]}..., redirect_uri={redirect_uri}")
             # Exchange code for tokens
             token_data = await om.exchange_code(code, redirect_uri, state)
             access_token = token_data.get("access_token", "")
@@ -584,9 +587,11 @@ def setup_auth_routes(auth_manager: AuthManager, oauth_manager: Optional[OAuthMa
 
             # Fetch userinfo
             userinfo = await om.get_userinfo(access_token)
+            logger.info(f"OAuth callback: userinfo={userinfo}")
 
             # Extract username
             username = om.get_username_from_claims(userinfo)
+            logger.info(f"OAuth callback: username={username}")
 
             # Get or create user (uses OAuth config for first_user_admin, etc.)
             om.get_or_create_user(
@@ -594,24 +599,14 @@ def setup_auth_routes(auth_manager: AuthManager, oauth_manager: Optional[OAuthMa
             )
 
             # Create session (use a dummy password — session is OIDC-based)
+            logger.info(f"OAuth callback: creating session for {username}")
             token = auth_manager.create_session(username, "oidc")
+            logger.info(f"OAuth callback: session token={token}")
             if not token:
                 return RedirectResponse(
                     url="/login?oidc_error=Session creation failed",
                     status_code=302,
                 )
-
-            # Set session cookie
-            cookie_kwargs = dict(
-                key=SESSION_COOKIE,
-                value=token,
-                httponly=True,
-                samesite="lax",
-                secure=os.getenv("SECURE_COOKIES", "false").lower() == "true",
-                path="/",
-                max_age=60 * 60 * 24 * 7,  # 7 days
-            )
-            response.set_cookie(**cookie_kwargs)
 
             # Store OIDC metadata in session for later use
             session_path = os.path.join(
@@ -629,8 +624,18 @@ def setup_auth_routes(auth_manager: AuthManager, oauth_manager: Optional[OAuthMa
             except Exception:
                 pass
 
-            # Redirect to main app
-            return RedirectResponse(url="/", status_code=302)
+            # Set session cookie on the redirect response
+            redirect = RedirectResponse(url="/", status_code=302)
+            redirect.set_cookie(
+                key=SESSION_COOKIE,
+                value=token,
+                httponly=True,
+                samesite="lax",
+                secure=os.getenv("SECURE_COOKIES", "false").lower() == "true",
+                path="/",
+                max_age=60 * 60 * 24 * 7,  # 7 days
+            )
+            return redirect
 
         except ValueError as e:
             return RedirectResponse(

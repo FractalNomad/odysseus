@@ -344,10 +344,18 @@ class AuthManager:
         return _verify_password(password, self.users[username]["password_hash"])
 
     def create_session(self, username: str, password: str) -> Optional[str]:
-        """Verify credentials and return a session token, or None."""
+        """Verify credentials and return a session token, or None.
+
+        For OIDC users (password='oidc'), skip bcrypt verification since
+        they have an empty password hash.
+        """
         username = username.strip().lower()
-        if not self.verify_password(username, password):
+        if username not in self.users:
             return None
+        # OIDC session — skip password check
+        if password != "oidc":
+            if not _verify_password(password, self.users[username]["password_hash"]):
+                return None
         token = secrets.token_hex(32)
         with self._sessions_lock:
             self._sessions[token] = {

@@ -387,8 +387,10 @@
 
   // OIDC login button
   const oidcLoginBtn = document.getElementById('oidcLogin');
+  console.log('oidcLoginBtn:', oidcLoginBtn, 'oidcEnabled:', oidcEnabled);
   if (oidcLoginBtn) {
     oidcLoginBtn.addEventListener('click', async () => {
+      console.log('OIDC button clicked');
       // Check for OIDC errors from previous callback
       const params = new URLSearchParams(window.location.search);
       const oidcError = params.get('oidc_error');
