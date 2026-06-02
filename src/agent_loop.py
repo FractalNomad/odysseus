@@ -74,7 +74,7 @@ _AGENT_RULES = """\
 - AFTER A TOOL SUCCEEDS, do not second-guess. The success message ("Document edited: v2, 1 edit") means it worked. Reply in ONE short sentence confirming what was done. No re-checking, no replaying the diff in your head, no validation theater.
 - AFTER A TOOL FAILS (timeout, error, "Unknown action", "not found"), DO NOT GO SILENT. The user expects a follow-up: either retry with a fix (e.g. correct args, longer-running form, run `tail -f /tmp/foo.log` to see progress, split into smaller steps), OR explicitly tell them "this didn't work, want me to try X instead?". A failed tool is not a stopping condition — only a successful one is.
 - YOU DECLARE WHEN THE JOB IS DONE — not a timer. Keep taking concrete steps while the task still needs them; you have plenty of rounds, so don't rush to quit just because you've made a few calls. There are exactly three ways to end a turn: (1) DONE — before you declare it, sanity-check that every concrete thing the user asked for actually exists or succeeded (file written, edit applied, command exited clean); then stop calling tools and write the final answer (that IS your "done" signal); (2) BLOCKED — you genuinely can't proceed (a capability is missing, permission denied, or data you can't obtain), so say plainly what's blocking you, in a sentence or two, and stop; (3) keep going with the single most useful next step. The only wrong moves are trailing off mid-task without one of these, and repeating a call you already ran.
-- CalDAV: Call list-calendars FIRST before any calendar operations.
+- Calendar: call `manage_calendar` with `action=list_calendars` FIRST before create/update/delete operations.
 - BULK email actions ("delete all those", "mark all as read", "archive these", "delete all spam", "mark these 19 read") → use the `bulk_email` tool ONCE with either the exact `uids` list from the latest `list_emails` result or `all_unread: true`. NEVER just say you deleted/archived/marked messages unless a delete/archive/mark/bulk email tool call succeeded. NEVER loop mark_email_read / archive_email / delete_email one message at a time — that floods the context and can blow the token budget. One bulk_email call handles the whole set.
 - Email UIDs are the values after `UID:` in tool output, not list row numbers. For example, row `1.` with `UID: 90186` must use `"90186"`, never `"1"`.
 - "Last/latest/newest email" means call `list_emails` with `max_results: 1`, `unread_only: false`, and the right `account`, then read the UID returned by that tool if full content is needed. NEVER use a table row number like "#18" as an email UID.
@@ -120,7 +120,7 @@ _API_AGENT_RULES = """\
 - AFTER A TOOL SUCCEEDS, do not second-guess. A success response means it worked. Reply in ONE short sentence confirming what was done. No verification thinking, no re-analyzing — move on.
 - AFTER A TOOL FAILS, DO NOT GO SILENT. The user expects a follow-up: retry with a fix, run a diagnostic (`tail`, `ls`, `which`), or explicitly tell them what didn't work and what you'll try next. Failure is not a stopping condition.
 - YOU DECLARE WHEN THE JOB IS DONE — not a timer. Keep taking concrete steps while the task still needs them; don't quit early just because you've made a few calls. Three ways to end a turn: (1) DONE — before declaring it, verify every concrete deliverable the user asked for actually exists or succeeded; then stop calling tools and write the final answer (that IS your "done" signal); (2) BLOCKED — you can't proceed (missing capability, permission denied, unobtainable data), so state plainly what's blocking you and stop; (3) keep going with the single most useful next step. Never trail off mid-task without (1) or (2), and never repeat a call you already ran.
-- CalDAV: Call list-calendars FIRST before any calendar operations.
+- Calendar: call `manage_calendar` with `action=list_calendars` FIRST before create/update/delete operations.
 - "Create/add/write a note" / "notes" / "todos" / "remind me to X at <time>" → use `manage_notes`. Do NOT store notes in `manage_memory`; memory is for persistent facts/preferences about the user, not note content. For reminders, include a `due_date`; for todos, use `note_type=checklist` when appropriate. `manage_tasks` is for RECURRING background AI jobs, NOT for one-off user reminders.
 - "Disable/turn off/enable/turn on <tool>" (shell, search, research, browser, documents, incognito, etc.) → call `ui_control` with `toggle <name> <on|off>`. Aliases accepted: shell→bash, search→web, deepresearch→research, documents→document_editor. NEVER record this as a memory — the user wants the toggle flipped, not a note about preferring it.
 - "Research X" / "do research on X" / "look into Y" / "deep dive on Z" → call `trigger_research` with `topic`. This starts a live job that appears in the Deep Research sidebar (streams progress + final report). **Do NOT use `web_search` for these** — saw the agent do a plain web_search for "do research on X" when the user wanted the deep-research job. "research X" is a deep-research request, not a quick lookup. (web_search is only for a single quick fact mid-task.) Do NOT POST /api/research/start via app_api either — blocked. After starting, tell the user it's running in the Deep Research sidebar. Only if the user explicitly wants it inline/quick should you fall back to web_search.
@@ -198,6 +198,12 @@ Or with JSON for fresh news:
 {"query": "<your query>", "time_filter": "day"}
 ```
 Search the web for a SINGLE quick fact/lookup mid-task. For news / "today" / "latest" queries, pass `time_filter` ("day", "week", "month", or "year"). NOT for "research X" / "do research on X" / "look into X" requests — those mean a multi-source DEEP RESEARCH job: use `trigger_research` instead (it runs in the Deep Research sidebar and produces a full report). web_search = one quick query; trigger_research = a researched report.""",
+
+    "web_fetch": """\
+```web_fetch
+<url or domain>
+```
+Fetch and read the text content of a SPECIFIC URL the user names (e.g. "check example.com", "what does this page say <url>"). A bare domain like `example.com` works (defaults to https). Use this when you already have a concrete URL. For open-ended lookups use `web_search`, and for "research X" jobs use `trigger_research`.""",
 
     "read_file": """\
 ```read_file
@@ -450,6 +456,7 @@ _API_HOSTS = frozenset([
     "api.deepseek.com", "deepseek.com",
     "api.together.xyz", "api.fireworks.ai",
     "api.perplexity.ai", "api.x.ai",
+    "ollama.com",
 ])
 _MCP_KEYWORDS = frozenset(["browse", "browser", "website", "calendar", "event", "email",
                            "gmail", "screenshot", "navigate", "click", "miniflux", "rss", "feed"])
@@ -1351,7 +1358,7 @@ async def stream_agent_loop(
     except Exception as _e:
         logger.debug(f"endpoint supports_tools lookup failed: {_e}")
     _model_supports_tools = any(kw in _model_lc for kw in (
-        "deepseek", "gpt-4", "gpt-5", "gpt-o", "claude", "gemini",
+        "deepseek", "gpt-4", "gpt-5", "gpt-o", "claude", "gemini", "gemma",
         "qwen3", "qwen2.5", "mixtral", "mistral", "llama-3.1", "llama-3.2",
         "llama-3.3", "llama-4",
         # Local-served models that follow OpenAI-style function calling
