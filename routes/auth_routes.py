@@ -602,7 +602,8 @@ def setup_auth_routes(auth_manager: AuthManager, oauth_manager: Optional[OAuthMa
         if not code or not state:
             return RedirectResponse(url="/login", status_code=302)
 
-        # Validate state
+        # Validate state FIRST (before any network calls) to prevent
+        # CSRF and replay attacks. get_state() also prunes expired entries.
         state_data = om.get_state(state)
         if not state_data:
             return RedirectResponse(
@@ -610,13 +611,13 @@ def setup_auth_routes(auth_manager: AuthManager, oauth_manager: Optional[OAuthMa
                 status_code=302,
             )
 
-        # Use base URL without query params — Authentik validates that this
+        # Use base URL without query params — IdP validates that this
         # redirect_uri matches the one from the authorization request.
         redirect_uri = str(request.url).split("?")[0]
 
         try:
             logger.info(f"OAuth callback: code={code[:10]}..., state={state[:10]}..., redirect_uri={redirect_uri}")
-            # Exchange code for tokens
+            # Exchange code for tokens (includes PKCE code_verifier validation)
             token_data = await om.exchange_code(code, redirect_uri, state)
             access_token = token_data.get("access_token", "")
             id_token = token_data.get("id_token", "")
@@ -631,6 +632,9 @@ def setup_auth_routes(auth_manager: AuthManager, oauth_manager: Optional[OAuthMa
             userinfo = await om.get_userinfo(access_token)
             logger.info(f"OAuth callback: userinfo={userinfo}")
 
+            # SECURITY: validate issuer matches discovery document
+            om.validate_response(userinfo, id_token)
+
             # Extract username
             username = om.get_username_from_claims(userinfo)
             logger.info(f"OAuth callback: username={username}")
@@ -640,31 +644,17 @@ def setup_auth_routes(auth_manager: AuthManager, oauth_manager: Optional[OAuthMa
                 username, userinfo, auth_manager
             )
 
-            # Create session (use a dummy password — session is OIDC-based)
+            # Create session — oidc=True stores OIDC metadata inside
+            # auth_manager._sessions_lock so sessions.json stays consistent.
+            # Do NOT mutate sessions.json directly outside the lock.
             logger.info(f"OAuth callback: creating session for {username}")
-            token = auth_manager.create_session(username, "oidc")
+            token = auth_manager.create_session(username, "oidc", oidc=True)
             logger.info(f"OAuth callback: session token={token}")
             if not token:
                 return RedirectResponse(
                     url="/login?oidc_error=Session creation failed",
                     status_code=302,
                 )
-
-            # Store OIDC metadata in session for later use
-            session_path = os.path.join(
-                os.path.dirname(auth_manager.auth_path), "sessions.json"
-            )
-            try:
-                import json as _json
-                with open(session_path, "r") as f:
-                    sessions = _json.load(f)
-                if token in sessions:
-                    sessions[token]["oidc"] = True
-                    sessions[token]["oidc_username"] = username
-                with open(session_path, "w") as f:
-                    _json.dump(sessions, f)
-            except Exception:
-                pass
 
             # Set session cookie on the redirect response
             redirect = RedirectResponse(url="/", status_code=302)

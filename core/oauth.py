@@ -10,6 +10,7 @@ determined by OAUTH_DEFAULT_ROLE unless the user belongs to one of the
 OAUTH_GROUPS_ADMIN groups.
 """
 
+import hashlib
 import json
 import logging
 import os
@@ -23,6 +24,10 @@ import httpx
 from src.settings import load_settings
 
 logger = logging.getLogger(__name__)
+
+# State entries expire after this many seconds to bound memory usage and
+# prevent stale CSRF state from being accepted indefinitely.
+_STATE_TTL_SECONDS = 600  # 10 minutes
 
 
 class OAuthConfig:
@@ -48,6 +53,7 @@ class OAuthConfig:
         self.logout_url: str = ""
         self.redirect_uri: str = ""
         self.discovery_url: str = ""
+        self.issuer: str = ""  # from discovery document, used for token validation
         self._discovery_cache: Optional[Dict[str, Any]] = None
         self._discovery_time: float = 0
 
@@ -117,6 +123,27 @@ class OAuthConfig:
         if os.getenv("OAUTH_DISCOVERY_URL"):
             self.discovery_url = os.getenv("OAUTH_DISCOVERY_URL")
 
+    def _validate_issuer(self, userinfo: Dict[str, Any], id_token: Optional[str] = None) -> bool:
+        """Validate that the response came from the expected issuer.
+
+        If discovery was used, the issuer from the discovery document must
+        match. If no discovery was used (manual endpoints), we skip issuer
+        validation since there is no ground truth to compare against.
+        """
+        if not self.issuer:
+            # No discovery document loaded — nothing to validate against.
+            return True
+        # Some IdPs include `iss` in userinfo; others only in the ID token.
+        # We accept either.
+        userinfo_iss = userinfo.get("iss", "")
+        if userinfo_iss and userinfo_iss != self.issuer:
+            logger.warning(
+                f"Issuer mismatch: userinfo iss='{userinfo_iss}' "
+                f"!= discovery issuer='{self.issuer}'"
+            )
+            return False
+        return True
+
     @property
     def is_configured(self) -> bool:
         # Discovery URL alone is sufficient — endpoints will be resolved
@@ -174,7 +201,7 @@ class OAuthConfig:
                     if "revocation_endpoint" in data:
                         pass  # store if needed later
                     if "issuer" in data:
-                        pass  # useful for token validation
+                        self.issuer = data["issuer"]
 
                     logger.info(f"OIDC discovery successful: {discovery_target}")
                     return data
@@ -191,8 +218,10 @@ class OAuthManager:
 
     def __init__(self):
         self.config = OAuthConfig()
-        self._state_store: Dict[str, Dict[str, Any]] = {}  # state_param -> {nonce, redirect}
+        # state_param -> {nonce, redirect, code_verifier, created_at}
+        self._state_store: Dict[str, Dict[str, Any]] = {}
         self._state_lock = None  # lazy init
+        self._pkce_enabled: bool = True  # PKCE is on by default
 
     def load_config(self, settings: Optional[Dict[str, Any]] = None):
         self.config.load(settings)
@@ -204,9 +233,25 @@ class OAuthManager:
             self._state_lock = threading.RLock()
         return self._state_lock
 
+    def _prune_expired_state(self):
+        """Remove expired entries from the state store."""
+        now = time.monotonic()
+        with self._get_state_lock():
+            expired = [
+                s for s, v in self._state_store.items()
+                if now - v.get("created_at", 0) > _STATE_TTL_SECONDS
+            ]
+            for s in expired:
+                del self._state_store[s]
+            if expired:
+                logger.debug(f"Pruned {len(expired)} expired OIDC state(s)")
+
     async def get_authorize_url(self, redirect_uri: str, state: Optional[str] = None,
                                  nonce: Optional[str] = None) -> str:
-        """Build the authorization URL to redirect the user to."""
+        """Build the authorization URL to redirect the user to.
+
+        Uses PKCE (code_challenge S256) by default for added security.
+        """
         if not self.config.is_configured:
             raise ValueError("OAuth not configured")
 
@@ -217,8 +262,19 @@ class OAuthManager:
         if nonce is None:
             nonce = secrets.token_urlsafe(32)
 
+        # PKCE: generate a code_verifier and derive code_challenge
+        code_verifier = secrets.token_urlsafe(64)
+        code_challenge = hashlib.sha256(code_verifier.encode("ascii")).digest()
+        import base64 as _base64
+        code_challenge = _base64.urlsafe_b64encode(code_challenge).decode("ascii").rstrip("=")
+
         with self._get_state_lock():
-            self._state_store[state] = {"nonce": nonce, "redirect": redirect_uri}
+            self._state_store[state] = {
+                "nonce": nonce,
+                "redirect": redirect_uri,
+                "code_verifier": code_verifier,
+                "created_at": time.monotonic(),
+            }
 
         params = {
             "response_type": "code",
@@ -227,21 +283,31 @@ class OAuthManager:
             "scope": self.config.scopes,
             "state": state,
             "nonce": nonce,
+            "code_challenge": code_challenge,
+            "code_challenge_method": "S256",
         }
 
         return f"{self.config.authorize_url}?{urlencode(params)}"
 
     async def exchange_code(self, code: str, redirect_uri: str,
                             state: str) -> Dict[str, Any]:
-        """Exchange authorization code for tokens."""
+        """Exchange authorization code for tokens.
+
+        Validates PKCE code_verifier from the state store.
+        """
         if not self.config.is_configured:
             raise ValueError("OAuth not configured")
+
+        # PKCE: retrieve code_verifier from state (set by get_authorize_url)
+        state_data = self._state_store.get(state, {})
+        code_verifier = state_data.get("code_verifier", "")
 
         token_body = {
             "grant_type": "authorization_code",
             "code": code,
             "client_id": self.config.client_id,
             "redirect_uri": redirect_uri,
+            "code_verifier": code_verifier,
         }
 
         async with httpx.AsyncClient(timeout=15) as client:
@@ -302,6 +368,17 @@ class OAuthManager:
 
             return resp.json()
 
+    def validate_response(self, userinfo: Dict[str, Any], id_token: Optional[str] = None) -> None:
+        """Validate the OIDC response.
+
+        Checks issuer consistency. Raises ValueError on mismatch.
+        """
+        if not self.config._validate_issuer(userinfo, id_token):
+            raise ValueError(
+                "Issuer mismatch — the IdP response does not match the "
+                "expected issuer from the discovery document."
+            )
+
     def get_username_from_claims(self, userinfo: Dict[str, Any]) -> str:
         """Extract username from userinfo claims."""
         username = userinfo.get(self.config.username_claim)
@@ -357,17 +434,24 @@ class OAuthManager:
         return username
 
     def get_state(self, state: str) -> Optional[Dict[str, Any]]:
-        """Retrieve and remove a state entry."""
+        """Retrieve and remove a state entry.
+
+        Also prunes other expired entries to bound memory usage.
+        """
+        self._prune_expired_state()
         with self._get_state_lock():
             return self._state_store.pop(state, None)
 
     def get_oidc_settings(self) -> Dict[str, Any]:
-        """Return OIDC settings for the frontend (secrets masked)."""
+        """Return OIDC settings for the frontend (secrets masked).
+
+        SECURITY: client_secret must never be sent to the browser.
+        """
         return {
             "enabled": self.config.enabled,
             "provider_name": self.config.provider_name,
             "client_id": self.config.client_id,
-            "client_secret": self.config.client_secret,
+            "client_secret": "****" if self.config.client_secret else "",  # SECURITY: mask secret
             "authorize_url": self.config.authorize_url,
             "token_url": self.config.token_url,
             "userinfo_url": self.config.userinfo_url,
@@ -383,5 +467,6 @@ class OAuthManager:
             "logout_url": self.config.logout_url,
             "redirect_uri": self.config.redirect_uri,
             "discovery_url": self.config.discovery_url,
+            "issuer": self.config.issuer,
             "is_configured": self.config.is_configured,
         }

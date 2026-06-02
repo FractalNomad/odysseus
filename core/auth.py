@@ -410,11 +410,22 @@ class AuthManager:
             return False
         return _verify_password(password, self.users[username]["password_hash"])
 
-    def create_session(self, username: str, password: str) -> Optional[str]:
+    def create_session(
+        self,
+        username: str,
+        password: str,
+        *,
+        oidc: bool = False,
+    ) -> Optional[str]:
         """Verify credentials and return a session token, or None.
 
         For OIDC users (password='oidc'), skip bcrypt verification since
         they have an empty password hash.
+
+        Args:
+            oidc: If True, mark the session as OIDC-derived. This is stored
+                inside the sessions_lock so the on-disk sessions.json is
+                consistent — callers must NOT mutate sessions.json themselves.
         """
         username = username.strip().lower()
         if username not in self.users:
@@ -429,6 +440,9 @@ class AuthManager:
                 "username": username,
                 "expiry": time.time() + TOKEN_TTL,
             }
+            if oidc:
+                self._sessions[token]["oidc"] = True
+                self._sessions[token]["oidc_username"] = username
         self._save_sessions()
         return token
 
